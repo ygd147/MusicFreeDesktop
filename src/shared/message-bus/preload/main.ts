@@ -5,17 +5,12 @@ import { getGlobalContext } from "@shared/global-context/preload";
 
 const extPorts = new Map<number, MessagePort>();
 const subscribedAppStates = new Map<string | number, Array<keyof IAppState>>();
-
-const mainProcessSubscribedKeys: Array<keyof IAppState> = [
-  "lyricText",
-  "playerState",
-  "repeatMode",
-  "musicItem",
-];
+//ygd add fullLyric and duration currentTime progress
+const mainProcessSubscribedKeys: Array<keyof IAppState> = ["lyricText", "playerState", "repeatMode", "musicItem", "fullLyric", "duration", "currentTime", "progress"];
 if (getGlobalContext().platform === "darwin") {
   mainProcessSubscribedKeys.push("lyricText");
 }
-subscribedAppStates.set("main", mainProcessSubscribedKeys);
+subscribedAppStates.set("main", mainProcessSubscribedKeys)
 
 const ee = new EventEmitter();
 
@@ -48,7 +43,7 @@ ipcRenderer.on("port", (e, message) => {
 
 ipcRenderer.on("@shared/message-bus/message", (_evt, message) => {
   handleMessage(message, null);
-});
+})
 
 function handleMessage(data: IPortMessage, from: number | null) {
   const { type, payload, timestamp } = data;
@@ -57,17 +52,7 @@ function handleMessage(data: IPortMessage, from: number | null) {
     return;
   }
 
-  if (type === "ping") {
-    // 渲染进程发来的建连消息
-    const expPort = extPorts.get(from);
-    // 返回一个相同的ping
-    if (expPort) {
-      expPort.postMessage({
-        type: "ping",
-        timestamp: Date.now(),
-      });
-    }
-  } else if (type === "subscribeAppState" && from !== null) {
+  if (type === "subscribeAppState" && from !== null) {
     // @ts-ignore
     subscribedAppStates.set(from, payload);
   } else if (type === "command") {
@@ -75,27 +60,25 @@ function handleMessage(data: IPortMessage, from: number | null) {
   }
 }
 
-function onCommand<K extends keyof ICommand>(
-  command: K,
-  cb: (data: ICommand[K], from: "main" | number) => void
-) {
+function onCommand<K extends keyof ICommand>(command: K, cb: (data: ICommand[K], from: "main" | number) => void) {
   ee.on("command", (payload, from) => {
+    //ygd add 远程命令
+    // console.log(payload.command === command)
+    // console.log(command)
     if (payload.command === command) {
+      console.log("命令开始执行")
+
       cb?.(payload.data, from);
     }
   });
 }
 
 function sendCommand<K extends keyof ICommand>(command: K, data: ICommand[K]) {
-  ee.emit(
-    "command",
-    {
-      command: command,
-      data: data,
-      timestamp: Date.now(),
-    },
-    -1
-  );
+  ee.emit("command", {
+    command: command,
+    data: data,
+    timestamp: Date.now()
+  }, -1);
 }
 
 function syncAppState(appState: IAppState, to?: "main" | number) {
@@ -115,6 +98,7 @@ function syncAppStateTo(appState: IAppState, processId: "main" | number) {
   const data: IAppState = {};
   if (processId === "main") {
     const mainSubscribedKeys = subscribedAppStates.get(processId);
+    //ygd add 状态同步
     let cnt = 0;
     mainSubscribedKeys.forEach((key) => {
       if (appState[key] !== undefined) {
@@ -123,6 +107,7 @@ function syncAppStateTo(appState: IAppState, processId: "main" | number) {
         ++cnt;
       }
     });
+    // console.log(data)
     if (cnt) {
       ipcRenderer.send("@shared/message-bus/sync-app-state", data);
     }
@@ -140,21 +125,49 @@ function syncAppStateTo(appState: IAppState, processId: "main" | number) {
         data[key] = appState[key];
         ++cnt;
       }
-    });
+    })
     if (cnt) {
       expPort.postMessage({
         type: "syncAppState",
         payload: data,
-        timestamp: Date.now(),
+        timestamp: Date.now()
       });
     }
   }
+
+}
+
+//ygd add 同步歌单
+function syncPlayList(playList: any) {
+  ipcRenderer.send("@shared/message-bus/sync-play-list", playList);
+}
+
+function syncMusicSheets(musicSheets: IMusic.IDBMusicSheetItem) {
+  ipcRenderer.send("@shared/message-bus/sync-music-sheets", musicSheets);
+}
+
+function syncAudioDevices(audioDevices: any) {
+  ipcRenderer.send("@shared/message-bus/sync-audio-devices", audioDevices);
+}
+
+function syncVolume(audioDevices: any) {
+  ipcRenderer.send("@shared/message-bus/sync-volume", audioDevices);
+}
+
+function syncSearchResult(searchResult: IMusic.IMusicItem[]) {
+  console.log(searchResult)
+  ipcRenderer.send("@shared/message-bus/sync-search-result", searchResult);
 }
 
 const mod = {
   syncAppState,
   onCommand,
   sendCommand,
+  syncPlayList,  //ygd add
+  syncMusicSheets,
+  syncAudioDevices,
+  syncVolume,
+  syncSearchResult
 };
 
 contextBridge.exposeInMainWorld("@shared/message-bus/main", mod);

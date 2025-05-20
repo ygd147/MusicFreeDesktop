@@ -10,6 +10,7 @@ export interface IAppState {
   fullLyric?: IParsedLrcItem[] | null;
   progress?: number;
   duration?: number;
+  currentTime?: number;
 }
 
 export interface ICommand {
@@ -39,28 +40,35 @@ export interface ICommand {
   OpenMusicDetailPage: void;
   /** 切换主窗口显示 */
   ToggleMainWindowVisible: void;
+  // ygd  add icommand切换歌单
+  setMusicSheets: string;
+  //ygd add icommand跳转进度
+  setSeekTo: number;
+  //ygd add icommand切换播放设备
+  setAudioDevice: string;
+  //ygd add icommand切换播放设备
+  setVolume: number;
+  //ygd add icommand使用bilibli插件搜索音乐
+  searchMusic: string;
+  //ygd add icommand获取搜索结果
+  getSearchResult: string;
 }
+
 
 // 内部使用的消息
 // 其他窗口向主窗口发送的消息
-export interface IPortMessagePayload<
-  CommandKey extends keyof ICommand = keyof ICommand,
-  StateKey extends keyof IAppState = keyof IAppState
-> {
+export interface IPortMessagePayload<CommandKey extends keyof ICommand = keyof ICommand, StateKey extends keyof IAppState = keyof IAppState> {
   mount: number;
   unmount: number;
   command: {
-    command: CommandKey;
-    data: ICommand[CommandKey];
-  };
-  subscribeAppState: StateKey[];
-  ping: undefined;
+    command: CommandKey,
+    data: ICommand[CommandKey]
+  },
+  subscribeAppState: StateKey[]
 }
 
-export interface IPortMessage<
-  T extends keyof IPortMessagePayload = keyof IPortMessagePayload
-> {
-  type: T;
-  payload: IPortMessagePayload[T];
-  timestamp: number;
+export interface IPortMessage<T extends keyof IPortMessagePayload = keyof IPortMessagePayload> {
+  type: T,
+  payload: IPortMessagePayload[T],
+  timestamp: number
 }

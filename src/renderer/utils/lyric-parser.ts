@@ -128,8 +128,7 @@ export default class LyricParser {
       return this.lrcItems
         .map(
           (item) =>
-            `${this.timeToLrctime(item.time)} ${
-              type === "raw" ? item.lrc : item.translation
+            `${this.timeToLrctime(item.time)} ${type === "raw" ? item.lrc : item.translation
             }`
         )
         .join("\r\n");

@@ -43,3 +43,8 @@ export interface CurrentTime {
   currentTime: number;
   duration: number;
 }
+
+// ygd add 歌单事件类型
+export enum PlayListEvent {
+  SyncPlayList = 'sync-set-playlist'
+}

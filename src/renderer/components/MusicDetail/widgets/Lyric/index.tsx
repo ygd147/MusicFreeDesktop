@@ -15,9 +15,10 @@ import LyricParser from "@/renderer/utils/lyric-parser";
 import { getLinkedLyric, unlinkLyric } from "@/renderer/core/link-lyric";
 import { getMediaPrimaryKey } from "@/common/media-util";
 import { useTranslation } from "react-i18next";
-import {useLyric} from "@renderer/core/track-player/hooks";
+import { useLyric } from "@renderer/core/track-player/hooks";
 import trackPlayer from "@renderer/core/track-player";
-import {dialogUtil, fsUtil} from "@shared/utils/renderer";
+import { dialogUtil, fsUtil } from "@shared/utils/renderer";
+import React from "react";
 
 export default function Lyric() {
   const lyricContext = useLyric();
@@ -99,8 +100,8 @@ export default function Lyric() {
         style={
           fontSize
             ? {
-                fontSize: `${fontSize}px`,
-              }
+              fontSize: `${fontSize}px`,
+            }
             : null
         }
         ref={containerRef}
@@ -119,7 +120,7 @@ export default function Lyric() {
                     className="lyric-item search-lyric"
                     role="button"
                     onClick={() => {
-                        const currentMusic = trackPlayer.currentMusic;
+                      const currentMusic = trackPlayer.currentMusic;
                       showModal("SearchLyric", {
                         defaultTitle: currentMusic?.title,
                         musicItem: currentMusic,
@@ -132,9 +133,9 @@ export default function Lyric() {
               }
             >
               {lyricParser?.getLyricItems?.()?.map((lyricItem, index) => (
-                <>
+                <React.Fragment key={index}>
                   <div
-                    key={index}
+                    key={`lyric-${index}`}
                     className="lyric-item"
                     id={`lyric-item-id-${index}`}
                     data-highlight={currentLrc?.index === index}
@@ -145,7 +146,7 @@ export default function Lyric() {
                     condition={lyricParser?.hasTranslation && showTranslation}
                   >
                     <div
-                      key={"tr" + index}
+                      key={`translation-${index}`}
                       className="lyric-item lyric-item-translation"
                       id={`tr-lyric-item-id-${index}`}
                       data-highlight={currentLrc?.index === index}
@@ -153,7 +154,7 @@ export default function Lyric() {
                       {lyricItem.translation}
                     </div>
                   </IfTruthy>
-                </>
+                </React.Fragment>
               ))}
             </Condition>
           </Condition>
@@ -204,6 +205,24 @@ function LyricContextMenu(props: ILyricContextMenuProps) {
         setLyricFontSize(`${val}`);
       }
     }
+  }
+
+  // ygd add 歌词提前
+  async function lyric_forward() {
+    trackPlayer.lyric_changeTime(-1);
+    // const lyricContext = useLyric();
+    // const lyricParser = lyricContext?.parser;
+    // const currentLrc = lyricContext?.currentLrc;
+    // console.log(currentLrc)
+  }
+
+  // ygd add 歌词延后
+  async function lyric_backward() {
+    trackPlayer.lyric_changeTime(1);
+    // const lyricContext = useLyric();
+    // const lyricParser = lyricContext?.parser;
+    // const currentLrc = lyricContext?.currentLrc;
+    // console.log(currentLrc)
   }
 
   async function downloadLyric(fileType: "lrc" | "txt") {
@@ -348,8 +367,8 @@ function LyricContextMenu(props: ILyricContextMenuProps) {
         <span>
           {linkedLyricInfo
             ? `${t("music_detail.media_lyric_linked")} ${getMediaPrimaryKey(
-                linkedLyricInfo
-              )}`
+              linkedLyricInfo
+            )}`
             : t("music_detail.search_lyric")}
         </span>
       </div>
@@ -361,15 +380,32 @@ function LyricContextMenu(props: ILyricContextMenuProps) {
           try {
             await unlinkLyric(currentMusicRef.current);
             if (trackPlayer.isCurrentMusic(currentMusicRef.current)) {
-                trackPlayer.fetchCurrentLyric(true);
+              trackPlayer.fetchCurrentLyric(true);
             }
             toast.success(t("music_detail.toast_media_lyric_unlinked"));
           } catch {
-              // pass
+            // pass
           }
         }}
       >
         {t("music_detail.unlink_media_lyric")}
+      </div>
+
+      <div
+        className="lyric-ctx-menu--row-container"
+        role="button"
+        onClick={lyric_forward}
+      >
+        {t("music_detail.lyric_forward")}
+      </div>
+
+      <div
+        className="lyric-ctx-menu--row-container"
+        role="button"
+        data-disabled={false}
+        onClick={lyric_backward}
+      >
+        {t("music_detail.lyric_backward")}
       </div>
     </>
   );

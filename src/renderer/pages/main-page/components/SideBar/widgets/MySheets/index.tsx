@@ -8,8 +8,8 @@ import { hideModal, showModal } from "@/renderer/components/Modal";
 import { localPluginName } from "@/common/constant";
 import { showContextMenu } from "@/renderer/components/ContextMenu";
 import { useTranslation } from "react-i18next";
-import {useSupportedPlugin} from "@shared/plugin-manager/renderer";
-
+import { useSupportedPlugin } from "@shared/plugin-manager/renderer";
+import messageBus from "@/shared/message-bus/renderer/main";
 
 export default function MySheets() {
   const sheetIdMatch = useMatch(
@@ -17,6 +17,8 @@ export default function MySheets() {
   );
   const currentSheetId = sheetIdMatch?.params?.sheetId;
   const musicSheets = MusicSheet.frontend.useAllSheets();
+  //ygd add 初始化同步所有歌单
+  messageBus.syncMusicSheets(musicSheets)
   const navigate = useNavigate();
   const { t } = useTranslation();
 

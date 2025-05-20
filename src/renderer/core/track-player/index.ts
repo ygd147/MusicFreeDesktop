@@ -1,4 +1,4 @@
-import {CurrentTime, ICurrentLyric, PlayerEvents,} from "./enum";
+import { CurrentTime, ICurrentLyric, PlayerEvents, PlayListEvent } from "./enum"; // ygd add事件
 import shuffle from "lodash.shuffle";
 import {
     addSortProperty,
@@ -7,8 +7,8 @@ import {
     isSameMedia,
     sortByTimestampAndIndex,
 } from "@/common/media-util";
-import {PlayerState, RepeatMode, sortIndexSymbol, timeStampSymbol} from "@/common/constant";
-import LyricParser, {IParsedLrcItem} from "@/renderer/utils/lyric-parser";
+import { PlayerState, RepeatMode, sortIndexSymbol, timeStampSymbol } from "@/common/constant";
+import LyricParser, { IParsedLrcItem } from "@/renderer/utils/lyric-parser";
 import {
     getUserPreference,
     getUserPreferenceIDB,
@@ -17,19 +17,22 @@ import {
     setUserPreferenceIDB,
 } from "@/renderer/utils/user-perference";
 import AppConfig from "@shared/app-config/renderer";
-import {createIndexMap, IIndexMap} from "@/common/index-map";
+import { createIndexMap, IIndexMap } from "@/common/index-map";
 import _trackPlayerStore from "./store";
 import EventEmitter from "eventemitter3";
-import {IAudioController} from "@/types/audio-controller";
+import { IAudioController } from "@/types/audio-controller";
 import AudioController from "@renderer/core/track-player/controller/audio-controller";
 import logger from "@shared/logger/renderer";
 import voidCallback from "@/common/void-callback";
-import {delay} from "@/common/time-util";
-import {createUniqueMap} from "@/common/unique-map";
-import {getLinkedLyric} from "@renderer/core/link-lyric";
-import {fsUtil} from "@shared/utils/renderer";
+import { delay } from "@/common/time-util";
+import { createUniqueMap } from "@/common/unique-map";
+import { getLinkedLyric } from "@renderer/core/link-lyric";
+import { fsUtil } from "@shared/utils/renderer";
 import PluginManager from "@shared/plugin-manager/renderer";
-
+import messageBus from "@/shared/message-bus/renderer/main";
+import { PlaylistContextType } from "hls.js/dist/hls.js";
+import * as backend from "@/renderer/core/music-sheet/backend";
+import { json } from "node:stream/consumers";
 const {
     musicQueueStore,
     currentMusicStore,
@@ -52,6 +55,7 @@ interface InternalPlayerEvents {
     [PlayerEvents.Error]: (errorMusicItem: IMusic.IMusicItem | null, reason: any) => void;
     [PlayerEvents.ProgressChanged]: (progress: CurrentTime) => void;
     [PlayerEvents.StateChanged]: (state: PlayerState) => void;
+    // [PlayListEvent.SyncPlayList]: (playlist: any) => void; // ygd add 事件允许类型
 }
 
 interface IPlayOptions {
@@ -202,6 +206,7 @@ class TrackPlayer {
         })
 
         audioController.onVolumeChange = (volume) => {
+            messageBus.syncVolume(volume)
             currentVolumeStore.setValue(volume);
             setUserPreference("volume", volume);
         }
@@ -234,6 +239,11 @@ class TrackPlayer {
             getUserPreference("currentQuality") || AppConfig.getConfig("playMusic.defaultQuality")
         ];
         const playList = (await getUserPreferenceIDB("playList")) ?? [];
+        // ygd add 歌单初始化
+        //console.log(playList)
+        messageBus.syncPlayList(playList)
+        //messageBus.
+        // this.ee.emit(PlayListEvent.SyncPlayList, playList)
         addSortProperty(playList);
         const deviceId = AppConfig.getConfig("playMusic.audioOutputDevice")?.deviceId;
 
@@ -253,6 +263,7 @@ class TrackPlayer {
         this.currentIndex = this.findMusicIndex(currentMusic);
 
         if (deviceId) {
+            console.log(deviceId)
             this.setAudioOutputDevice(deviceId);
         }
 
@@ -268,7 +279,7 @@ class TrackPlayer {
         this.fetchCurrentLyric();
 
         // 5. fetch music source
-        this.fetchMediaSource(currentMusic, defaultQuality).then(({mediaSource, quality}) => {
+        this.fetchMediaSource(currentMusic, defaultQuality).then(({ mediaSource, quality }) => {
             if (this.isCurrentMusic(currentMusic)) {
                 this.setTrack(mediaSource, currentMusic, {
                     seekTo: currentProgress,
@@ -279,6 +290,59 @@ class TrackPlayer {
         }).catch(voidCallback);
     }
 
+
+    //ygd add 歌词提前延后
+
+
+    public shiftLRCTime(lrcContent: string, seconds: number) {
+        const timeRegex = /\[(\d+):(\d+\.\d+)\]/g;
+        return lrcContent.replace(timeRegex, (match, minutesStr, secondsStr) => {
+            const minutes = parseInt(minutesStr, 10);
+            const secondsValue = parseFloat(secondsStr);
+            const totalSeconds = minutes * 60 + secondsValue + seconds;
+
+            // 确保时间不小于0
+            const adjustedSeconds = Math.max(0, totalSeconds);
+
+            const newMinutes = Math.floor(adjustedSeconds / 60);
+            const newSeconds = (adjustedSeconds % 60).toFixed(2).padStart(5, '0');
+            return `[${newMinutes}:${newSeconds}]`;
+        });
+    }
+
+    public async lyric_changeTime(seconds: number) {
+        console.log(this.lyric)
+        const fs: any = window["fs" as any]
+        if (!this.lyric)
+            return
+        let parser = this.lyric.parser
+        let currentLyricRaws = parser.toString()
+
+
+        currentLyricRaws = this.shiftLRCTime(currentLyricRaws, seconds)
+        parser = new LyricParser(currentLyricRaws, { musicItem: this.currentMusic });
+        this.lyric.parser = parser;
+        this.setCurrentLyric({
+            parser,
+            currentLrc: parser.getPosition(this.progress.currentTime || 0)
+        });
+
+        if (this.currentMusic.platform == '本地' && this.currentMusic.localPath) {
+            let filePath: string = this.currentMusic.localPath.substr(0, this.currentMusic.localPath.lastIndexOf(".")) + '.lrc';
+            console.log(filePath)
+            try {
+                const result = await fs.writeFile(filePath, currentLyricRaws, "utf-8");
+                if (result) {
+                    console.log("歌词下载成功")
+                } else {
+                    console.log(result)
+                }
+            } catch (error) {
+                console.log(error)
+            }
+
+        }
+    }
 
     // 切换播放模式
     public toggleRepeatMode() {
@@ -299,7 +363,7 @@ class TrackPlayer {
     }
 
     public async playIndex(index: number, options: IPlayOptions = {}) {
-        const {refreshSource, restartOnSameMedia = true, seekTo, quality: intendedQuality} = options;
+        const { refreshSource, restartOnSameMedia = true, seekTo, quality: intendedQuality } = options;
         if (index === -1 && this.musicQueue.length === 0) {
             // 播放列表为空
             return;
@@ -326,7 +390,7 @@ class TrackPlayer {
         this.audioController.prepareTrack?.(nextMusicItem);
 
         try {
-            const {mediaSource, quality} = await this.fetchMediaSource(nextMusicItem, intendedQuality);
+            const { mediaSource, quality } = await this.fetchMediaSource(nextMusicItem, intendedQuality);
 
             if (!mediaSource.url) {
                 throw new Error("mediaSource.url is empty");
@@ -568,7 +632,7 @@ class TrackPlayer {
     public async setQuality(quality: IMusic.IQualityKey) {
         const currentMusic = this.currentMusic;
         if (currentMusic && quality !== this.currentQuality) {
-            const {mediaSource, quality: realQuality} = await this.fetchMediaSource(currentMusic, quality)
+            const { mediaSource, quality: realQuality } = await this.fetchMediaSource(currentMusic, quality)
             if (this.isCurrentMusic(currentMusic)) {
                 this.setTrack(mediaSource, currentMusic, {
                     seekTo: this.progress.currentTime ?? 0,
@@ -599,12 +663,31 @@ class TrackPlayer {
     }
 
     public setMusicQueue(musicQueue: IMusic.IMusicItem[]) {
+        // ygd add 切换歌单
+        //console.log(musicQueue)
+        messageBus.syncPlayList(musicQueue)
+        // this.ee.emit(PlayListEvent.SyncPlayList, musicQueue)
         musicQueueStore.setValue(musicQueue);
         setUserPreferenceIDB("playList", musicQueue);
         this.indexMap.update(musicQueue);
         this.currentIndex = this.findMusicIndex(this.currentMusic);
     }
+    // ygd add 切换music sheets
+    public async setMusicSheets(sheetId: string) {
 
+        let sheetDetail = await backend.getSheetItemDetail(sheetId)
+        this.setMusicQueue(sheetDetail.musicList)
+    }
+
+    public syncAudioDevices(audioDevices: any) {
+        console.log("setdevices")
+        console.log(audioDevices)
+        messageBus.syncAudioDevices(JSON.stringify(audioDevices))
+    }
+
+    public syncVolume() {
+        messageBus.syncVolume(currentVolumeStore.getValue())
+    }
 
     public async fetchCurrentLyric(forceLoad = false) {
         const currentMusic = this.currentMusic;
@@ -618,47 +701,113 @@ class TrackPlayer {
         if (!forceLoad && currentLyric && this.isCurrentMusic(currentLyric?.parser?.musicItem)) {
             return;
         }
+        // ygd add 获取本地歌词
+        const fs: any = window["fs" as any]
+        console.log(currentMusic.platform)
         try {
             // 获取被关联的歌词
             const linkedLyricItem = await getLinkedLyric(currentMusic);
-            let lyricSource: ILyric.ILyricSource;
+            if (linkedLyricItem != null) {
+                let lyricSource: ILyric.ILyricSource;
+                //console.log(window["fs" as any])
+                if (linkedLyricItem) {
+                    lyricSource = await PluginManager.callPluginDelegateMethod(
+                        linkedLyricItem,
+                        "getLyric",
+                        linkedLyricItem
+                    )
+                }
+                if (!lyricSource && this.isCurrentMusic(currentMusic)) {
+                    lyricSource = await PluginManager.callPluginDelegateMethod(
+                        currentMusic,
+                        "getLyric",
+                        currentMusic
+                    );
+                }
 
-            if (linkedLyricItem) {
-                lyricSource = await PluginManager.callPluginDelegateMethod(
-                    linkedLyricItem,
-                    "getLyric",
-                    linkedLyricItem
-                )
-            }
-            if (!lyricSource && this.isCurrentMusic(currentMusic)) {
-                lyricSource = await PluginManager.callPluginDelegateMethod(
-                    currentMusic,
-                    "getLyric",
-                    currentMusic
-                );
-            }
 
-            if (!this.isCurrentMusic(currentMusic)) {
-                return;
-            }
+                if (!this.isCurrentMusic(currentMusic)) {
+                    return;
+                }
+                if (!lyricSource?.rawLrc && !lyricSource?.translation) {
+                    this.setCurrentLyric({});
+                }
+                const parser = new LyricParser(lyricSource?.rawLrc, {
+                    musicItem: currentMusic,
+                    translation: lyricSource?.translation
+                });
+                // ygd add
+                // console.log(parser)
+                this.setCurrentLyric({
+                    parser,
+                    currentLrc: parser.getPosition(this.progress.currentTime || 0)
+                });
+                if (currentMusic.platform == '本地' && currentMusic.localPath) {
+                    let filePath: string = currentMusic.localPath.substr(0, currentMusic.localPath.lastIndexOf(".")) + '.lrc';
+                    const result = await fs.writeFile(filePath, lyricSource?.rawLrc, "utf-8");
+                    if (result) {
+                        console.log("歌词下载成功")
+                    }
+                }
+            } else {
+                console.log("没有关联歌词")
+                try {
+                    let filePath: string = currentMusic.localPath.substr(0, currentMusic.localPath.lastIndexOf(".")) + '.lrc';
+                    console.log(filePath)
+                    await fs.access(filePath, fs.constants.F_OK);
+                    const lrcfile = await fs.readFile(filePath, "utf-8");
+                    const parser = new LyricParser(lrcfile, { musicItem: currentMusic });
+                    console.log("找到了本地歌词")
+                    this.setCurrentLyric({
+                        parser,
+                        currentLrc: parser.getPosition(this.progress.currentTime || 0)
+                    });
+                    //return true;
+                } catch (error) {
+                    console.log('文件不存在');
+                    console.log(error)
+                    let music_source = await PluginManager.callPluginDelegateMethod({ platform: "QQ音乐", hash: "" },
+                        "search",
+                        currentMusic.title,
+                        1,
+                        "music")
 
-            if (!lyricSource?.rawLrc && !lyricSource?.translation) {
-                this.setCurrentLyric({});
-            }
-            const parser = new LyricParser(lyricSource.rawLrc, {
-                musicItem: currentMusic,
-                translation: lyricSource.translation
-            });
+                    const lyric = await PluginManager.callPluginDelegateMethod(
+                        music_source.data[0],
+                        "getLyric",
+                        music_source.data[0]
+                    );
+                    // console.log(lyric)
+                    if (!lyric?.rawLrc) {
+                        console.log(lyric)
+                        //currentLyricStore.setValue({});
+                        return;
+                    } else {
+                        const rawLrc = lyric?.rawLrc;
+                        const parser = new LyricParser(lyric?.rawLrc, { musicItem: currentMusic });
+                        // console.log(lyric?.rawLrc)
+                        this.setCurrentLyric({
+                            parser,
+                            currentLrc: parser.getPosition(this.progress.currentTime || 0)
+                        });
+                        if (currentMusic.platform == '本地' && currentMusic.localPath) {
+                            let filePath: string = currentMusic.localPath.substr(0, currentMusic.localPath.lastIndexOf(".")) + '.lrc';
+                            const result = await fs.writeFile(filePath, rawLrc, "utf-8");
+                            if (result) {
+                                console.log("歌词下载成功")
+                            }
+                        }
+                    }
+                }
 
-            this.setCurrentLyric({
-                parser,
-                currentLrc: parser.getPosition(this.progress.currentTime || 0)
-            });
+                // this.setCurrentLyric({});
+            }
         } catch (e) {
             logger.logError("歌词解析失败", e);
             this.setCurrentLyric({});
         }
 
+        //return false;
 
     }
 
@@ -678,7 +827,7 @@ class TrackPlayer {
             "downloadData"
         );
         if (downloadedData) {
-            const {quality, path: _path} = downloadedData;
+            const { quality, path: _path } = downloadedData;
             if (await fsUtil.isFile(_path)) {
                 return {
                     quality,
@@ -720,6 +869,8 @@ class TrackPlayer {
 
     // 只读数据的设置
     private setCurrentMusic(musicItem: IMusic.IMusicItem | null) {
+        // ygd add
+        //console.log('setCurrentMusic')
         if (!this.isCurrentMusic(musicItem)) {
             currentMusicStore.setValue(musicItem);
             this.ee.emit(PlayerEvents.MusicChanged, musicItem);
@@ -751,7 +902,9 @@ class TrackPlayer {
     private setCurrentLyric(lyric?: ICurrentLyric) {
         const prev = this.lyric;
         currentLyricStore.setValue(lyric);
-
+        //ygd add
+        // console.log(lyric)
+        // console.log(lyric?.currentLrc !== prev?.currentLrc)
         if (lyric?.parser !== prev?.parser) {
             this.ee.emit(PlayerEvents.LyricChanged, lyric?.parser ?? null);
         } else if (lyric?.currentLrc !== prev?.currentLrc) {

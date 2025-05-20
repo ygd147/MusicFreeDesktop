@@ -1,23 +1,25 @@
-import {localPluginHash, PlayerState, RepeatMode, supportLocalMediaType} from "@/common/constant";
+import { localPluginHash, PlayerState, RepeatMode, supportLocalMediaType } from "@/common/constant";
 import MusicSheet from "../core/music-sheet";
 import trackPlayer from "../core/track-player";
 import localMusic from "../core/local-music";
-import {setAutoFreeze} from "immer";
+import { setAutoFreeze } from "immer";
 import Downloader from "../core/downloader";
 import AppConfig from "@shared/app-config/renderer";
-import {setupI18n} from "@/shared/i18n/renderer";
+import { setupI18n } from "@/shared/i18n/renderer";
 import ThemePack from "@/shared/themepack/renderer";
-import {addToRecentlyPlaylist, setupRecentlyPlaylist,} from "../core/recently-playlist";
+import { addToRecentlyPlaylist, setupRecentlyPlaylist, } from "../core/recently-playlist";
 import ServiceManager from "@shared/service-manager/renderer";
-import {CurrentTime, PlayerEvents} from "@renderer/core/track-player/enum";
-import {appWindowUtil, fsUtil} from "@shared/utils/renderer";
+import { CurrentTime, PlayerEvents, PlayListEvent } from "@renderer/core/track-player/enum";
+import { appWindowUtil, fsUtil } from "@shared/utils/renderer";
 import PluginManager from "@shared/plugin-manager/renderer";
 import messageBus from "@shared/message-bus/renderer/main";
 import throttle from "lodash.throttle";
-import {IAppState} from "@shared/message-bus/type";
+import { IAppState } from "@shared/message-bus/type";
 import MusicDetail from "@renderer/components/MusicDetail";
 import shortCut from "@shared/short-cut/renderer";
-
+import { PlaylistContextType } from "hls.js/dist/hls.js";
+import searchFunction from './search'
+import { currentMediaTypeStore } from "@renderer/pages/main-page/views/search-view/store/search-result";
 
 setAutoFreeze(false);
 
@@ -150,6 +152,7 @@ function setupCommandAndEvents() {
         }
     });
     messageBus.onCommand("SetRepeatMode", (mode) => {
+        //console.log(mode)
         trackPlayer.setRepeatMode(mode);
     })
     messageBus.onCommand("VolumeUp", (val = 0.04) => {
@@ -185,6 +188,48 @@ function setupCommandAndEvents() {
         appWindowUtil.toggleMainWindowVisible();
     })
 
+    // ygd add playMusic Command
+
+    messageBus.onCommand("PlayMusic", (musicItem) => {
+        trackPlayer.playMusic(musicItem)
+    })
+
+    messageBus.onCommand("setMusicSheets", (sheetId: string) => {
+
+        trackPlayer.setMusicSheets(sheetId)
+    })
+
+    messageBus.onCommand("setSeekTo", (seconds: number) => {
+        trackPlayer.seekTo(seconds);
+    })
+
+    messageBus.onCommand("setAudioDevice", (deviceId: string) => {
+        trackPlayer.setAudioOutputDevice(deviceId);
+    })
+
+    messageBus.onCommand("setVolume", (volume: number) => {
+        trackPlayer.setVolume(volume);
+    })
+
+    messageBus.onCommand("searchMusic", (serach: string) => {
+
+        let pluginDelegates: IPlugin.IPluginDelegate[] = PluginManager.getSupportedPlugin("search");
+        let target_hash: string = ""
+        pluginDelegates.forEach(async (pluginDelegate) => {
+            const _platform = pluginDelegate.platform;
+            //console.log(_platform)
+            const _hash = pluginDelegate.hash;
+            if (_platform == 'bilibili') {
+                const currentType = currentMediaTypeStore.getValue();
+                let searchResult: any = await searchFunction(serach, 1, currentType, _hash)
+                messageBus.syncSearchResult(searchResult);
+            }
+            if (!_platform || !_hash) {
+                // 插件无效
+                return;
+            }
+        })
+    });
 
     const sendAppStateTo = (from: "main" | number) => {
         const appState: IAppState = {
@@ -206,6 +251,12 @@ function setupCommandAndEvents() {
     });
     sendAppStateTo("main");
 
+    //ygd add 播放器事件初始化
+    console.log("播放器事件初始化")
+    // trackPlayer.on(PlayListEvent.SyncPlayList, playList => {
+    //     console.log("PlayListEvent.SyncPlayList 触发")
+    //     console.log(playList)
+    // })
     // 状态同步
     trackPlayer.on(PlayerEvents.StateChanged, state => {
         messageBus.syncAppState({
@@ -214,19 +265,24 @@ function setupCommandAndEvents() {
     });
 
     trackPlayer.on(PlayerEvents.RepeatModeChanged, mode => {
+        console.log(mode)
         messageBus.syncAppState({
             repeatMode: mode
         })
     });
 
     trackPlayer.on(PlayerEvents.CurrentLyricChanged, lyric => {
+        // console.log(lyric)
         messageBus.syncAppState({
-            lyricText: lyric.lrc,
-            parsedLrc: lyric
+            lyricText: lyric?.lrc,
+            parsedLrc: lyric,
+            // currentTime: lyric?.time
         });
     })
 
     trackPlayer.on(PlayerEvents.LyricChanged, lyric => {
+        // ygd add 歌词变化监听
+        //console.log(lyric?.getLyricItems?.() || [])
         messageBus.syncAppState({
             fullLyric: lyric?.getLyricItems?.() || []
         })
@@ -255,13 +311,25 @@ function setupCommandAndEvents() {
     });
 }
 
-async function setupDeviceChange() {
-    const getAudioDevices = async () =>
-        await navigator.mediaDevices.enumerateDevices().catch(() => []);
-    let devices = (await getAudioDevices()) || [];
+export async function getOutputAudioDevices(): Promise<MediaDeviceInfo[]> {
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        return devices.filter((item) => item.kind === "audiooutput");
+    } catch (error) {
+        console.error('获取音频输出设备时出错:', error);
+        return [];
+    }
+}
 
+async function setupDeviceChange() {
+
+
+
+    let devices = (await getOutputAudioDevices()) || [];
+    trackPlayer.syncAudioDevices(devices)
+    trackPlayer.syncVolume()
     navigator.mediaDevices.ondevicechange = async (evt) => {
-        const newDevices = await getAudioDevices();
+        const newDevices = await getOutputAudioDevices();
         if (
             newDevices.length < devices.length &&
             AppConfig.getConfig("playMusic.whenDeviceRemoved") === "pause"
