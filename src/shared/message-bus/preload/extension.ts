@@ -15,6 +15,7 @@ let pingTimer: NodeJS.Timeout | null = null;
 const cachedMessages: IPortMessage[] = [];
 
 ipcRenderer.on("port", (e) => {
+  e.ports[0]
   extPort = e.ports[0];
   pingTimer = setInterval(() => {
     console.log("ping");
@@ -26,7 +27,6 @@ ipcRenderer.on("port", (e) => {
   }, 300);
   extPort.onmessage = (evt) => {
     const data = evt.data;
-
     if (data.type === "syncAppState") {
       appState = {
         ...appState,
@@ -35,6 +35,7 @@ ipcRenderer.on("port", (e) => {
       ee.emit("stateChanged", appState, data.payload || {});
     } else if (data.type === "ping") {
       connected = true;
+      console.log(connected)
       clearInterval(pingTimer);
       pingTimer = null;
       if (cachedMessages.length) {
@@ -63,14 +64,13 @@ function sendCommand<T extends keyof ICommand>(command: T, data?: ICommand[T]) {
   }
   extPort.postMessage(message);
 }
-
+//ygd dev 状态同步
 function subscribeAppState(keys: (keyof IAppState)[]) {
   const message: IPortMessage = {
     type: "subscribeAppState",
     payload: keys,
     timestamp: Date.now(),
   };
-
   if (!extPort || !connected) {
     cachedMessages.push(message);
     return;

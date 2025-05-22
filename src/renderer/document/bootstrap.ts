@@ -37,7 +37,7 @@ export default async function () {
     dropHandler();
     clearDefaultBehavior();
     setupCommandAndEvents();
-    setupDeviceChange();
+    setInterval(setupDeviceChange, 5000);
     localMusic.setupLocalMusic();
     await Downloader.setupDownloader();
     setupRecentlyPlaylist();
@@ -321,21 +321,45 @@ export async function getOutputAudioDevices(): Promise<MediaDeviceInfo[]> {
     }
 }
 
+function deduplicateAudioDevices(devices: any) {
+    const uniqueMap = new Map();
+
+    devices.forEach((device: any) => {
+        // 提取物理设备标识（移除虚拟设备标记）
+        const physicalLabel = device.label
+            .replace(/^(Default|Communications)\s*-\s*/i, '')
+            .replace(/$.*?$/g, '').trim();
+
+        // 复合键：设备组ID+净化后的标签
+        const compositeKey = `${device.groupId}|${physicalLabel}`;
+
+        // 保留物理设备或首个有效设备
+        if (!uniqueMap.has(compositeKey) ||
+            !['default', 'communications'].includes(device.deviceId)) {
+            uniqueMap.set(compositeKey, device);
+        }
+    });
+
+    return Array.from(uniqueMap.values());
+}
+
+// 修改后的主函数
 async function setupDeviceChange() {
+    let devices = deduplicateAudioDevices(await getOutputAudioDevices());
 
+    navigator.mediaDevices.ondevicechange = async () => {
+        const newDevices = deduplicateAudioDevices(await getOutputAudioDevices());
 
-
-    let devices = (await getOutputAudioDevices()) || [];
-    trackPlayer.syncAudioDevices(devices)
-    trackPlayer.syncVolume()
-    navigator.mediaDevices.ondevicechange = async (evt) => {
-        const newDevices = await getOutputAudioDevices();
-        if (
-            newDevices.length < devices.length &&
-            AppConfig.getConfig("playMusic.whenDeviceRemoved") === "pause"
-        ) {
+        if (newDevices.length < devices.length &&
+            AppConfig.getConfig("playMusic.whenDeviceRemoved") === "pause") {
             trackPlayer.pause();
         }
+
         devices = newDevices;
     };
+    // console.log(devices)
+    trackPlayer.syncAudioDevices(devices);
+    trackPlayer.syncVolume();
 }
+
+

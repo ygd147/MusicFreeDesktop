@@ -227,13 +227,16 @@ const cmdHandler = (data: any) => {
     return return_code
 };
 
+//curl -X POST -H "Content-Type: application/json" -d '{"cmd":"get-current-music"}' http://192.168.0.119:3001/
 
 
 
 
 const startServer = async () => {
     const server = http.createServer((req: any, res: any) => {
-        res.setHeader('Access-Control-Allow-Origin', 'http://192.168.0.100:8123');
+        //允许跨域
+        // res.setHeader('Access-Control-Allow-Origin', 'http://192.168.0.100:8123');
+        res.setHeader('Access-Control-Allow-Origin', '*');
         // 如果需要带有凭据的请求，需要设置Access-Control-Allow-Credentials
         res.setHeader('Access-Control-Allow-Credentials', 'true');
         // 允许的方法

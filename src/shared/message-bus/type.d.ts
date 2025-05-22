@@ -57,18 +57,24 @@ export interface ICommand {
 
 // 内部使用的消息
 // 其他窗口向主窗口发送的消息
-export interface IPortMessagePayload<CommandKey extends keyof ICommand = keyof ICommand, StateKey extends keyof IAppState = keyof IAppState> {
+export interface IPortMessagePayload<
+  CommandKey extends keyof ICommand = keyof ICommand,
+  StateKey extends keyof IAppState = keyof IAppState
+> {
   mount: number;
   unmount: number;
   command: {
-    command: CommandKey,
-    data: ICommand[CommandKey]
-  },
-  subscribeAppState: StateKey[]
+    command: CommandKey;
+    data: ICommand[CommandKey];
+  };
+  subscribeAppState: StateKey[];
+  ping: undefined;
 }
 
-export interface IPortMessage<T extends keyof IPortMessagePayload = keyof IPortMessagePayload> {
-  type: T,
-  payload: IPortMessagePayload[T],
-  timestamp: number
+export interface IPortMessage<
+  T extends keyof IPortMessagePayload = keyof IPortMessagePayload
+> {
+  type: T;
+  payload: IPortMessagePayload[T];
+  timestamp: number;
 }

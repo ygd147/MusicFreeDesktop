@@ -52,7 +52,19 @@ function handleMessage(data: IPortMessage, from: number | null) {
     return;
   }
 
-  if (type === "subscribeAppState" && from !== null) {
+
+
+  if (type === "ping") {
+    // 渲染进程发来的建连消息
+    const expPort = extPorts.get(from);
+    // 返回一个相同的ping
+    if (expPort) {
+      expPort.postMessage({
+        type: "ping",
+        timestamp: Date.now(),
+      });
+    }
+  } else if (type === "subscribeAppState" && from !== null) {
     // @ts-ignore
     subscribedAppStates.set(from, payload);
   } else if (type === "command") {
@@ -94,11 +106,11 @@ function syncAppState(appState: IAppState, to?: "main" | number) {
   }
 }
 
+//ygd add 标记状态同步
 function syncAppStateTo(appState: IAppState, processId: "main" | number) {
   const data: IAppState = {};
   if (processId === "main") {
     const mainSubscribedKeys = subscribedAppStates.get(processId);
-    //ygd add 状态同步
     let cnt = 0;
     mainSubscribedKeys.forEach((key) => {
       if (appState[key] !== undefined) {
@@ -107,7 +119,6 @@ function syncAppStateTo(appState: IAppState, processId: "main" | number) {
         ++cnt;
       }
     });
-    // console.log(data)
     if (cnt) {
       ipcRenderer.send("@shared/message-bus/sync-app-state", data);
     }
@@ -125,16 +136,15 @@ function syncAppStateTo(appState: IAppState, processId: "main" | number) {
         data[key] = appState[key];
         ++cnt;
       }
-    })
+    });
     if (cnt) {
       expPort.postMessage({
         type: "syncAppState",
         payload: data,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
     }
   }
-
 }
 
 //ygd add 同步歌单

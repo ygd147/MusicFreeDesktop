@@ -1,14 +1,14 @@
-import {app, BrowserWindow, nativeImage, screen} from "electron";
+import { app, BrowserWindow, nativeImage, screen } from "electron";
 import getResourcePath from "@/common/main/get-resource-path";
-import {IWindowEvents, IWindowManager} from "@/types/main/window-manager";
-import {localPluginName, PlayerState, ResourceName} from "@/common/constant";
+import { IWindowEvents, IWindowManager } from "@/types/main/window-manager";
+import { localPluginName, PlayerState, ResourceName } from "@/common/constant";
 import voidCallback from "@/common/void-callback";
 import ThumbBarUtil from "@/common/main/thumb-bar-util";
 import EventEmitter from "eventemitter3";
 import WindowDrag from "@shared/window-drag/main";
 import AppConfig from "@shared/app-config/main";
 import messageBus from "@shared/message-bus/main";
-import {IAppConfig} from "@/types/app-config";
+import { IAppConfig } from "@/types/app-config";
 import debounce from "@/common/debounce";
 
 
@@ -242,6 +242,7 @@ class WindowManager implements IWindowManager {
     }
 
     private createLyricWindow() {
+        console.log('dev create lrc window')
         const initPosition = AppConfig.getConfig("private.lyricWindowPosition");
         const initSize = AppConfig.getConfig("private.lyricWindowSize");
 
@@ -373,7 +374,7 @@ class WindowManager implements IWindowManager {
         if (!WindowManager.lrcWindow) {
             this.createLyricWindow();
         }
-
+        console.log('dev show lyricwindow')
         const lrcWindow = WindowManager.lrcWindow;
 
         lrcWindow.show();

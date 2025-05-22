@@ -680,8 +680,8 @@ class TrackPlayer {
     }
 
     public syncAudioDevices(audioDevices: any) {
-        console.log("setdevices")
-        console.log(audioDevices)
+        // console.log("setdevices")
+        // console.log(audioDevices)
         messageBus.syncAudioDevices(JSON.stringify(audioDevices))
     }
 

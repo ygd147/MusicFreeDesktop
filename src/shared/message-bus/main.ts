@@ -147,6 +147,7 @@ class MessageBus {
 
     // 创建通信端口
     private createPortForExtensionWindow(bWindow: BrowserWindow) {
+
         const mainWindow = this.windowManager.mainWindow;
         if (!mainWindow || bWindow === mainWindow) {
             return;
